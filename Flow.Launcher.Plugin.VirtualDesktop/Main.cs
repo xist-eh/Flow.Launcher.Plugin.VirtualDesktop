@@ -22,32 +22,70 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
 
         public List<Result> Query(Query query)
         {
-
             var results = new List<Result>();
 
-            // Create array to store desktop count
-            int desktopCount = 10;
+            // Execute in STA thread to access COM objects
+            int desktopCount = 0;
+            List<string> desktopNames = null;
+            int currentDesktop = 0;
 
+            // Safely get desktop information using STA thread
+            ExecuteStaThread(() =>
+            {
+                try
+                {
+                    desktopCount = VDManager.GetDesktopCount();
+                    desktopNames = VDManager.GetAllDesktopNames();
+                    currentDesktop = VDManager.GetCurrentDesktopIndex();
+                }
+                catch (Exception)
+                {
+                    // Fallback to default values if COM calls fail
+                    desktopCount = 0;
+                    desktopNames = new List<string>();
+                }
+                return true;
+            });
 
             // Create results based on desktop count
             for (int i = 0; i < desktopCount; i++)
             {
                 var desktopIndex = i; // Capture for lambda
+                string title = (i < desktopNames?.Count) ? desktopNames[i] : $"Virtual Desktop {i + 1}";
+                string subtitle = (desktopIndex == currentDesktop) ?
+                    $"Current Desktop (Desktop {i + 1})" : $"Switch to Virtual Desktop {i + 1}";
+
                 results.Add(new Result
                 {
-                    Title = $"Virtual Desktop {i + 1}",
-                    SubTitle = $"Switch to Virtual Desktop {i + 1}",
+                    Title = title,
+                    SubTitle = subtitle,
                     IcoPath = IconPath,
                     Action = c =>
                     {
-                        return true;
+                        return ExecuteStaThread(() =>
+                        {
+                            try
+                            {
+                                if (desktopIndex != currentDesktop)
+                                {
+                                    // Only switch if it's not the current desktop
+                                    return VDManager.SwitchToDesktop(desktopIndex);
+                                }
+                                return true;
+                            }
+                            catch
+                            {
+                                return false;
+                            }
+                        });
                     }
                 });
             }
 
+            // Add management option
             results.Add(new Result
             {
-                Title = "Virtual Desktop",
+                Title = "Virtual Desktop Manager",
                 SubTitle = "Manage your virtual desktops",
                 IcoPath = IconPath,
                 Action = c =>

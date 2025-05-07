@@ -1,14 +1,4 @@
-using System.Reflection;
-[assembly: AssemblyTitle("Command line tool to manage virtual desktops")]
-[assembly: AssemblyDescription("Command line tool to manage virtual desktops")]
-[assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("MS")]
-[assembly: AssemblyProduct("VirtualDesktop")]
-[assembly: AssemblyCopyright("� Markus Scholtes 2025")]
-[assembly: AssemblyTrademark("")]
-[assembly: AssemblyCulture("")]
-[assembly: AssemblyVersion("1.20.0.0")]
-[assembly: AssemblyFileVersion("1.20.0.0")]
+
 
 // Author: Markus Scholtes, 2025
 // Version 1.20, 2025-01-18
@@ -26,6 +16,85 @@ using System.Text;
 
 
 // Based on http://stackoverflow.com/a/32417530, Windows 10 SDK, github project Grabacr07/VirtualDesktop and own research
+
+namespace Flow.Launcher.Plugin.VirtualDesktop
+{
+	// Helper class to access virtual desktop information
+	public static class VDManager
+	{
+		// Get the number of virtual desktops
+		public static int GetDesktopCount()
+		{
+			try
+			{
+				return global::VirtualDesktop.Desktop.Count;
+			}
+			catch (Exception)
+			{
+				return 0; // Return 0 if virtual desktops aren't supported
+			}
+		}
+
+		// Get the name of a virtual desktop by index
+		public static string GetDesktopName(int index)
+		{
+			try
+			{
+				return global::VirtualDesktop.Desktop.DesktopNameFromIndex(index);
+			}
+			catch (Exception)
+			{
+				return $"Desktop {index + 1}"; // Fallback name
+			}
+		}
+
+		// Get the current desktop index
+		public static int GetCurrentDesktopIndex()
+		{
+			try
+			{
+				return global::VirtualDesktop.Desktop.FromDesktop(global::VirtualDesktop.Desktop.Current);
+			}
+			catch (Exception)
+			{
+				return 0; // Fallback to first desktop
+			}
+		}
+
+		// Switch to a specific desktop
+		public static bool SwitchToDesktop(int index)
+		{
+			try
+			{
+				global::VirtualDesktop.Desktop.FromIndex(index).MakeVisible();
+				return true;
+			}
+			catch (Exception)
+			{
+				return false;
+			}
+		}
+
+		// Get all desktop names
+		public static List<string> GetAllDesktopNames()
+		{
+			List<string> desktopNames = new List<string>();
+			try
+			{
+				int count = global::VirtualDesktop.Desktop.Count;
+				for (int i = 0; i < count; i++)
+				{
+					desktopNames.Add(global::VirtualDesktop.Desktop.DesktopNameFromIndex(i));
+				}
+			}
+			catch (Exception)
+			{
+				// If error occurs, return empty list
+			}
+			return desktopNames;
+		}
+	}
+}
 
 namespace VirtualDesktop
 {
@@ -410,7 +479,7 @@ namespace VirtualDesktop
 			// no name found, generate generic name
 			if (string.IsNullOrEmpty(desktopName))
 			{ // create name "Desktop n" (n = number starting with 1)
-				desktopName = "Desktop " + (index + 1).ToString();
+				desktopName = "Unnamed Desktop " + (index + 1).ToString();
 			}
 			return desktopName;
 		}
