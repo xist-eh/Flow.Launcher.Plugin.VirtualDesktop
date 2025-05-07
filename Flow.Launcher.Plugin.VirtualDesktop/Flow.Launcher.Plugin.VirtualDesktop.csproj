@@ -30,7 +30,6 @@
 
   <ItemGroup>
     <PackageReference Include="Flow.Launcher.Plugin" Version="4.4.0" />
-    <PackageReference Include="VirtualDesktop" Version="5.0.5" />
   </ItemGroup>
 
 </Project>
