@@ -1,6 +1,6 @@
 {
     "ID": "99DC00A026DE45A4A11B91011C526943",
-    "ActionKeyword": "*",
+    "ActionKeyword": "vd",
     "Name": "VirtualDesktop",
     "Description": "Manage Windows Virtual Desktops within Flow",
     "Author": "xzist-eh",
