@@ -47,6 +47,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                 return true;
             });
 
+
             // Create results based on desktop count
             for (int i = 0; i < desktopCount; i++)
             {
@@ -68,8 +69,19 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                             {
                                 if (desktopIndex != currentDesktop)
                                 {
-                                    // Only switch if it's not the current desktop
-                                    return VDManager.SwitchToDesktop(desktopIndex);
+                                    // Get the Flow Launcher window handle before switching
+                                    IntPtr flowLauncherWindow = GetForegroundWindow();
+
+                                    // Switch to the selected desktop
+                                    bool switchResult = VDManager.SwitchToDesktop(desktopIndex);
+
+                                    // Move the Flow Launcher window to the new desktop
+                                    if (switchResult && flowLauncherWindow != IntPtr.Zero)
+                                    {
+                                        VDManager.MoveWindowToDesktop(flowLauncherWindow, desktopIndex);
+                                    }
+
+                                    return switchResult;
                                 }
                                 return true;
                             }

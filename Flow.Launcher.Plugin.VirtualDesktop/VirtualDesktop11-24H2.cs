@@ -1,5 +1,3 @@
-
-
 // Author: Markus Scholtes, 2025
 // Version 1.20, 2025-01-18
 // Version for Windows 11 24H2 Insider
@@ -92,6 +90,26 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
 				// If error occurs, return empty list
 			}
 			return desktopNames;
+		}
+		
+		// Move a window to a specific desktop
+		public static bool MoveWindowToDesktop(IntPtr windowHandle, int desktopIndex)
+		{
+			try
+			{
+				if (windowHandle == IntPtr.Zero) 
+					return false;
+					
+				if (desktopIndex < 0 || desktopIndex >= global::VirtualDesktop.Desktop.Count)
+					return false;
+					
+				global::VirtualDesktop.Desktop.FromIndex(desktopIndex).MoveWindow(windowHandle);
+				return true;
+			}
+			catch (Exception)
+			{
+				return false;
+			}
 		}
 	}
 }
