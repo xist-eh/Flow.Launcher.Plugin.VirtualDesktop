@@ -207,6 +207,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
 
         private void SwitchToDesktop(int index)
         {
+            CallVDManager($"/GetDesktop:{index} /MoveActiveWindow");
             CallVDManager($"/Switch:{index}");
         }
 
