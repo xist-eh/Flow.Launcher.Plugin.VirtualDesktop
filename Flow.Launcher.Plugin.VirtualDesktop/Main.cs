@@ -48,74 +48,171 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             }
 
             string[] desktops = GetAllDesktops();
-            int currentDesktopIndex = CallVDManager("/Q /GetCurrentDesktop").ExitCode;
+            int currentDesktopIndex = GetCurrentDesktopIndex();
             string currentDesktopName = desktops[currentDesktopIndex];
 
-            // Add rename option for the current desktop
+            // Handle rename command
             if (query.SearchTerms.Length > 0 && query.SearchTerms[0].Equals("rename", StringComparison.OrdinalIgnoreCase))
             {
-                string newName = string.Join(" ", query.SearchTerms.Skip(1));
+                return HandleRenameDesktop(query, currentDesktopName);
+            }
 
-                if (!string.IsNullOrWhiteSpace(newName))
-                {
-                    results.Add(new Result
-                    {
-                        Title = $"Rename current desktop to: {newName}",
-                        SubTitle = $"Current name: {currentDesktopName}",
-                        IcoPath = IconPath,
-                        Action = (e) =>
-                        {
-                            CallVDManager($"/GetCurrentDesktop /Name:{newName}");
-                            return true;
-                        }
-                    });
-                }
-                else
-                {
-                    results.Add(new Result
-                    {
-                        Title = "Rename current desktop",
-                        SubTitle = "Please enter a new name after the 'rename' command",
-                        IcoPath = IconPath,
-                        Action = (e) => false
-                    });
-                }
-
-                return results;
+            // Handle new desktop command
+            if (query.SearchTerms.Length > 0 && query.SearchTerms[0].Equals("new", StringComparison.OrdinalIgnoreCase))
+            {
+                return HandleCreateNewDesktop(query);
             }
 
             // Display current desktop info
             results.Add(new Result
             {
                 Title = $"Current: {currentDesktopName}",
-                SubTitle = "Type 'rename [name]' to rename this desktop",
+                SubTitle = "Type 'rename [name]' to rename this desktop or 'new [name]' to create a new desktop",
                 IcoPath = IconPath,
                 Action = (e) => false
             });
 
+            // Add new desktop option in the main results
+            results.Add(CreateNewDesktopResult());
+
+            // List other desktops for switching
             for (int i = 0; i < desktops.Length; i++)
             {
                 if (i == currentDesktopIndex)
                 {
                     continue; // Skip the current desktop
                 }
-                string desktop = desktops[i];
-                int index = i;  // Create a local copy of the loop variable
 
+                results.Add(CreateSwitchDesktopResult(desktops[i], i));
+            }
+
+            return results;
+        }
+
+        private List<Result> HandleRenameDesktop(Query query, string currentDesktopName)
+        {
+            var results = new List<Result>();
+            string newName = string.Join(" ", query.SearchTerms.Skip(1));
+
+            if (!string.IsNullOrWhiteSpace(newName))
+            {
                 results.Add(new Result
                 {
-                    Title = desktop,
-                    SubTitle = "Switch to this desktop",
+                    Title = $"Rename current desktop to: {newName}",
+                    SubTitle = $"Current name: {currentDesktopName}",
                     IcoPath = IconPath,
                     Action = (e) =>
                     {
-                        CallVDManager($"/Switch:{index}");
+                        RenameCurrentDesktop(newName);
                         return true;
                     }
                 });
             }
+            else
+            {
+                results.Add(new Result
+                {
+                    Title = "Rename current desktop",
+                    SubTitle = "Please enter a new name after the 'rename' command",
+                    IcoPath = IconPath,
+                    Action = (e) => false
+                });
+            }
 
             return results;
+        }
+
+        private List<Result> HandleCreateNewDesktop(Query query)
+        {
+            var results = new List<Result>();
+            string newName = string.Join(" ", query.SearchTerms.Skip(1));
+
+            if (!string.IsNullOrWhiteSpace(newName))
+            {
+                results.Add(new Result
+                {
+                    Title = $"Create new desktop with name: {newName}",
+                    SubTitle = "Creates and switches to a new desktop with the specified name",
+                    IcoPath = IconPath,
+                    Action = (e) =>
+                    {
+                        CreateNewDesktopWithName(newName);
+                        return true;
+                    }
+                });
+            }
+            else
+            {
+                results.Add(CreateNewDesktopResult());
+            }
+
+            return results;
+        }
+
+        private Result CreateNewDesktopResult()
+        {
+            return new Result
+            {
+                Title = "Create new desktop",
+                SubTitle = "Creates and switches to a new desktop",
+                IcoPath = IconPath,
+                Action = (e) =>
+                {
+                    CreateNewDesktop();
+                    return true;
+                }
+            };
+        }
+
+        private Result CreateSwitchDesktopResult(string desktopName, int desktopIndex)
+        {
+            return new Result
+            {
+                Title = desktopName,
+                SubTitle = "Switch to this desktop",
+                IcoPath = IconPath,
+                Action = (e) =>
+                {
+                    SwitchToDesktop(desktopIndex);
+                    return true;
+                }
+            };
+        }
+
+        private void RenameCurrentDesktop(string newName)
+        {
+            CallVDManager($"/GetCurrentDesktop /Name:{newName}");
+        }
+
+        private void CreateNewDesktop()
+        {
+            // Create a new desktop and get its index
+            int newDesktopIndex = CallVDManager("/New").ExitCode;
+
+            // Switch to the newly created desktop
+            SwitchToDesktop(newDesktopIndex);
+        }
+
+        private void CreateNewDesktopWithName(string name)
+        {
+            // Create new desktop with name and get its index
+            int newDesktopIndex = CallVDManager($"/New /Name:{name}").ExitCode;
+
+            // If the desktop was created successfully, switch to it
+            if (newDesktopIndex >= 0)
+            {
+                SwitchToDesktop(newDesktopIndex);
+            }
+        }
+
+        private void SwitchToDesktop(int index)
+        {
+            CallVDManager($"/Switch:{index}");
+        }
+
+        private int GetCurrentDesktopIndex()
+        {
+            return CallVDManager("/Q /GetCurrentDesktop").ExitCode;
         }
 
         private string[] GetAllDesktops()
