@@ -48,8 +48,13 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                 results.Add(new Result { Title = "VD Path", SubTitle = vdFullPath, IcoPath = IconPath });
             }
             string[] desktops = GetAllDesktops();
+            int currentDesktopIndex = CallVDManager("/Q /GetCurrentDesktop").ExitCode;
             for (int i = 0; i < desktops.Length; i++)
             {
+                if (i == currentDesktopIndex)
+                {
+                    continue; // Skip the current desktop
+                }
                 string desktop = desktops[i];
                 int index = i;  // Create a local copy of the loop variable
 
@@ -72,7 +77,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
 
         private string[] GetAllDesktops()
         {
-            return CallVDManager("/Q /List");
+            return CallVDManager("/Q /List").Output;
         }
 
         // Helper method to execute code in an STA thread
@@ -98,7 +103,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             return result;
         }
 
-        private string[] CallVDManager(string args)
+        private ProcessResult CallVDManager(string args)
         {
             var processInfo = new ProcessStartInfo
             {
@@ -111,6 +116,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             };
 
             List<string> outputLines = new List<string>();
+            int exitCode = 0;
 
             using (var process = new Process())
             {
@@ -141,9 +147,10 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                 process.BeginErrorReadLine();
 
                 process.WaitForExit(); // Wait for process to complete
+                exitCode = process.ExitCode;
             }
 
-            return outputLines.ToArray();
+            return new ProcessResult { Output = outputLines.ToArray(), ExitCode = exitCode };
         }
 
         // Add this to your Main class
@@ -159,5 +166,11 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+    }
+
+    public class ProcessResult
+    {
+        public string[] Output { get; set; }
+        public int ExitCode { get; set; }
     }
 }
