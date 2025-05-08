@@ -8,7 +8,6 @@ using System.IO;
 
 using Flow.Launcher.Plugin;
 
-
 namespace Flow.Launcher.Plugin.VirtualDesktop
 {
     public class Main : IPlugin
@@ -18,6 +17,13 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
         private string vdExeName = "VirtualDesktop11.exe";
         private string vdFullPath;
 
+        // Cache of desktop information to reduce process calls
+        private string[] _cachedDesktops = Array.Empty<string>();
+        private int _cachedCurrentDesktopIndex = -1;
+        private DateTime _lastCacheUpdate = DateTime.MinValue;
+        private readonly TimeSpan _cacheDuration = TimeSpan.FromSeconds(2); // Cache expires after 2 seconds
+        private bool _stateChanged = false; // Flag to track if state has changed since last cache
+        private int _lastSwitchedToDesktopIndex = -1; // Track the last switched desktop
 
         public void Init(PluginInitContext context)
         {
@@ -35,6 +41,9 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             // Get the full path to the executable
             string pluginDirectory = _context.CurrentPluginMetadata.PluginDirectory;
             vdFullPath = Path.Combine(pluginDirectory, "vdmanager", vdExeName);
+
+            // Initially populate the cache
+            RefreshDesktopCache();
         }
 
         public List<Result> Query(Query query)
@@ -47,8 +56,38 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                 results.Add(new Result { Title = "VD Path", SubTitle = vdFullPath, IcoPath = IconPath });
             }
 
-            string[] desktops = GetAllDesktops();
-            int currentDesktopIndex = GetCurrentDesktopIndex();
+            // Only refresh the cache if it's expired or state has changed
+            if (IsCacheExpired() || _stateChanged)
+            {
+                RefreshDesktopCache();
+                _stateChanged = false;
+            }
+
+            string[] desktops = _cachedDesktops;
+            int currentDesktopIndex = _cachedCurrentDesktopIndex;
+
+            // Ensure we have valid data
+            if (desktops.Length == 0 || currentDesktopIndex < 0 || currentDesktopIndex >= desktops.Length)
+            {
+                // Something is wrong with our cache, force a refresh
+                RefreshDesktopCache();
+                desktops = _cachedDesktops;
+                currentDesktopIndex = _cachedCurrentDesktopIndex;
+
+                // If still invalid, return an error message
+                if (desktops.Length == 0 || currentDesktopIndex < 0 || currentDesktopIndex >= desktops.Length)
+                {
+                    results.Add(new Result
+                    {
+                        Title = "Error retrieving virtual desktops",
+                        SubTitle = "Please check if the virtual desktop manager is working correctly",
+                        IcoPath = IconPath,
+                        Action = (e) => false
+                    });
+                    return results;
+                }
+            }
+
             string currentDesktopName = desktops[currentDesktopIndex];
 
             // Handle rename command
@@ -63,6 +102,41 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                 return HandleCreateNewDesktop(query);
             }
 
+            // If search term exists but isn't a command, treat as fuzzy search
+            if (query.SearchTerms.Length > 0 &&
+                !query.SearchTerms[0].Equals("new", StringComparison.OrdinalIgnoreCase) &&
+                !query.SearchTerms[0].Equals("rename", StringComparison.OrdinalIgnoreCase))
+            {
+                return HandleFuzzyDesktopSearch(query, desktops, currentDesktopIndex);
+            }
+
+            // List available desktops for switching (excluding current one)
+
+            // First, add the last switched desktop at the top if it's valid and not the current one
+            if (_lastSwitchedToDesktopIndex >= 0 &&
+                _lastSwitchedToDesktopIndex < desktops.Length &&
+                _lastSwitchedToDesktopIndex != currentDesktopIndex)
+            {
+                var lastDesktopResult = CreateSwitchDesktopResult(desktops[_lastSwitchedToDesktopIndex], _lastSwitchedToDesktopIndex);
+                lastDesktopResult.Title = $"↩ {desktops[_lastSwitchedToDesktopIndex]}"; // Add a return arrow to indicate "last used"
+                lastDesktopResult.SubTitle = "Switch back to previously used desktop";
+                results.Add(lastDesktopResult);
+            }
+
+            // Then add all other desktops
+            for (int i = 0; i < desktops.Length; i++)
+            {
+                if (i == currentDesktopIndex || i == _lastSwitchedToDesktopIndex)
+                {
+                    continue; // Skip the current desktop and last switched desktop (already added)
+                }
+
+                results.Add(CreateSwitchDesktopResult(desktops[i], i));
+            }
+
+            // Add new desktop option
+            results.Add(CreateNewDesktopResult());
+
             // Display current desktop info
             results.Add(new Result
             {
@@ -72,21 +146,160 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                 Action = (e) => false
             });
 
-            // Add new desktop option in the main results
-            results.Add(CreateNewDesktopResult());
+            return results;
+        }
 
-            // List other desktops for switching
+        private bool IsCacheExpired()
+        {
+            return (DateTime.Now - _lastCacheUpdate) > _cacheDuration;
+        }
+
+        private void RefreshDesktopCache()
+        {
+            string[] desktops = GetAllDesktopsFromSystem();
+            int currentIndex = GetCurrentDesktopIndexFromSystem();
+
+            // Only update the cache if we got valid data
+            if (desktops.Length > 0 && currentIndex >= 0 && currentIndex < desktops.Length)
+            {
+                _cachedDesktops = desktops;
+                _cachedCurrentDesktopIndex = currentIndex;
+                _lastCacheUpdate = DateTime.Now;
+            }
+        }
+
+        private void MarkStateChanged()
+        {
+            _stateChanged = true;
+        }
+
+        private List<Result> HandleFuzzyDesktopSearch(Query query, string[] desktops, int currentDesktopIndex)
+        {
+            var results = new List<Result>();
+            string searchTerm = string.Join(" ", query.SearchTerms).ToLower();
+
+            // Custom fuzzy search implementation
+            var matches = new List<(int index, string desktop, int score)>();
             for (int i = 0; i < desktops.Length; i++)
             {
-                if (i == currentDesktopIndex)
+                if (i != currentDesktopIndex) // Skip current desktop
                 {
-                    continue; // Skip the current desktop
+                    string desktopName = desktops[i].ToLower();
+                    int score = CalculateFuzzyMatchScore(searchTerm, desktopName);
+                    if (score > 0) // Match found
+                    {
+                        matches.Add((i, desktops[i], score));
+                    }
                 }
+            }
 
-                results.Add(CreateSwitchDesktopResult(desktops[i], i));
+            // Sort by match score in descending order
+            matches.Sort((a, b) => b.score.CompareTo(a.score));
+
+            // Add desktop results
+            foreach (var match in matches)
+            {
+                results.Add(new Result
+                {
+                    Title = match.desktop,
+                    SubTitle = "Switch to this desktop",
+                    IcoPath = IconPath,
+                    Score = match.score,
+                    Action = (e) =>
+                    {
+                        SwitchToDesktop(match.index);
+                        return true;
+                    }
+                });
+            }
+
+            // If no results, provide feedback
+            if (matches.Count == 0)
+            {
+                results.Add(new Result
+                {
+                    Title = "No matching desktops found",
+                    SubTitle = "Try a different search term or create a new desktop",
+                    IcoPath = IconPath,
+                    Action = (e) => false
+                });
+
+                // Add option to create a new desktop with this name
+                results.Add(new Result
+                {
+                    Title = $"Create new desktop named: '{searchTerm}'",
+                    SubTitle = "Creates and switches to a new desktop with this name",
+                    IcoPath = IconPath,
+                    Action = (e) =>
+                    {
+                        CreateNewDesktopWithName(searchTerm);
+                        return true;
+                    }
+                });
             }
 
             return results;
+        }
+
+        // Custom fuzzy search scoring function
+        private int CalculateFuzzyMatchScore(string query, string target)
+        {
+            if (string.IsNullOrEmpty(query))
+                return 0;
+
+            // Exact match gets highest score
+            if (target.Equals(query, StringComparison.OrdinalIgnoreCase))
+                return 100;
+
+            // Contains match gets high score based on relative length
+            if (target.Contains(query, StringComparison.OrdinalIgnoreCase))
+                return 80 + (query.Length * 100 / target.Length);
+
+            // Check if all characters in the query appear in the target in order (subsequence)
+            if (IsSubsequence(query, target))
+            {
+                // Calculate how much of the target is matched
+                int matchRatio = query.Length * 100 / target.Length;
+                return 50 + matchRatio;
+            }
+
+            // Check if the query is the beginning of any word in the target
+            string[] targetWords = target.Split(' ', '-', '_', '.');
+            foreach (var word in targetWords)
+            {
+                if (word.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                    return 40 + (query.Length * 100 / target.Length);
+            }
+
+            // Check if at least half of the characters match
+            int commonChars = 0;
+            foreach (char c in query)
+            {
+                if (target.Contains(c, StringComparison.OrdinalIgnoreCase))
+                    commonChars++;
+            }
+
+            if (commonChars >= query.Length / 2)
+                return 20 + (commonChars * 100 / query.Length);
+
+            return 0; // No meaningful match
+        }
+
+        // Check if query is a subsequence of target (characters appear in order but not necessarily adjacent)
+        private bool IsSubsequence(string query, string target)
+        {
+            int queryIndex = 0;
+            int targetIndex = 0;
+
+            while (queryIndex < query.Length && targetIndex < target.Length)
+            {
+                if (char.ToLower(query[queryIndex]) == char.ToLower(target[targetIndex]))
+                    queryIndex++;
+
+                targetIndex++;
+            }
+
+            return queryIndex == query.Length;
         }
 
         private List<Result> HandleRenameDesktop(Query query, string currentDesktopName)
@@ -182,6 +395,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
         private void RenameCurrentDesktop(string newName)
         {
             CallVDManager($"/GetCurrentDesktop /Name:{newName}");
+            MarkStateChanged();
         }
 
         private void CreateNewDesktop()
@@ -189,8 +403,12 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             // Create a new desktop and get its index
             int newDesktopIndex = CallVDManager("/New").ExitCode;
 
-            // Switch to the newly created desktop
-            SwitchToDesktop(newDesktopIndex);
+            // If the desktop was created successfully, switch to it
+            if (newDesktopIndex >= 0)
+            {
+                SwitchToDesktop(newDesktopIndex);
+                MarkStateChanged();
+            }
         }
 
         private void CreateNewDesktopWithName(string name)
@@ -202,23 +420,63 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             if (newDesktopIndex >= 0)
             {
                 SwitchToDesktop(newDesktopIndex);
+                MarkStateChanged();
             }
         }
 
         private void SwitchToDesktop(int index)
         {
-            CallVDManager($"/GetDesktop:{index} /MoveActiveWindow");
-            CallVDManager($"/Switch:{index}");
+            // Store current desktop as the last switched-from desktop
+            if (_cachedCurrentDesktopIndex >= 0 && _cachedCurrentDesktopIndex != index)
+            {
+                _lastSwitchedToDesktopIndex = _cachedCurrentDesktopIndex;
+            }
+
+            // Combined call to both move active window and switch desktop
+            // to make a single external process call instead of two
+            CallVDManager($"/GetDesktop:{index} /MoveActiveWindow /Switch");
+
+            // Force an immediate cache refresh to reflect the new desktop state
+            // This ensures the next time Flow is opened the current desktop is correct
+            MarkStateChanged();
+
+            // Small delay to ensure the desktop switch completes before refreshing
+            Thread.Sleep(100);
+
+            // Immediately refresh the cache so any subsequent operations show the correct desktop
+            RefreshDesktopCache();
         }
 
-        private int GetCurrentDesktopIndex()
+        // These methods interact directly with the system, bypassing the cache
+        private int GetCurrentDesktopIndexFromSystem()
         {
             return CallVDManager("/Q /GetCurrentDesktop").ExitCode;
         }
 
-        private string[] GetAllDesktops()
+        private string[] GetAllDesktopsFromSystem()
         {
             return CallVDManager("/Q /List").Output;
+        }
+
+        // Cached versions that use the internal state
+        private int GetCurrentDesktopIndex()
+        {
+            if (IsCacheExpired() || _stateChanged)
+            {
+                RefreshDesktopCache();
+                _stateChanged = false;
+            }
+            return _cachedCurrentDesktopIndex;
+        }
+
+        private string[] GetAllDesktops()
+        {
+            if (IsCacheExpired() || _stateChanged)
+            {
+                RefreshDesktopCache();
+                _stateChanged = false;
+            }
+            return _cachedDesktops;
         }
 
         // Helper method to execute code in an STA thread
