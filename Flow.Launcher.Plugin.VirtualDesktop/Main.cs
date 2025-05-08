@@ -43,12 +43,56 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
 
             if (query.SearchTerms.Any(s => s.Contains("debug", StringComparison.OrdinalIgnoreCase)))
             {
-
                 results.Add(new Result { Title = "Build Number", SubTitle = GetWindowsBuildNumber().ToString(), IcoPath = IconPath });
                 results.Add(new Result { Title = "VD Path", SubTitle = vdFullPath, IcoPath = IconPath });
             }
+
             string[] desktops = GetAllDesktops();
             int currentDesktopIndex = CallVDManager("/Q /GetCurrentDesktop").ExitCode;
+            string currentDesktopName = desktops[currentDesktopIndex];
+
+            // Add rename option for the current desktop
+            if (query.SearchTerms.Length > 0 && query.SearchTerms[0].Equals("rename", StringComparison.OrdinalIgnoreCase))
+            {
+                string newName = string.Join(" ", query.SearchTerms.Skip(1));
+
+                if (!string.IsNullOrWhiteSpace(newName))
+                {
+                    results.Add(new Result
+                    {
+                        Title = $"Rename current desktop to: {newName}",
+                        SubTitle = $"Current name: {currentDesktopName}",
+                        IcoPath = IconPath,
+                        Action = (e) =>
+                        {
+                            CallVDManager($"/GetCurrentDesktop /Name:{newName}");
+                            return true;
+                        }
+                    });
+                }
+                else
+                {
+                    results.Add(new Result
+                    {
+                        Title = "Rename current desktop",
+                        SubTitle = "Please enter a new name after the 'rename' command",
+                        IcoPath = IconPath,
+                        Action = (e) => false
+                    });
+                }
+
+                return results;
+            }
+
+            // Display current desktop info
+            results.Add(new Result
+            {
+                Title = $"Current: {currentDesktopName}",
+                SubTitle = "Type 'rename [name]' to rename this desktop",
+                IcoPath = IconPath,
+                Action = (e) => false
+            });
+
             for (int i = 0; i < desktops.Length; i++)
             {
                 if (i == currentDesktopIndex)
@@ -70,7 +114,6 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                     }
                 });
             }
-
 
             return results;
         }
