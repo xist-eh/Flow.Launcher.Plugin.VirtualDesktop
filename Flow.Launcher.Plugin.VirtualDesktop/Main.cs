@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Diagnostics;
+using System.IO;
 
 using Flow.Launcher.Plugin;
 
@@ -12,100 +14,65 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
     public class Main : IPlugin
     {
         private PluginInitContext _context;
-        private const string IconPath = "Images/app.png";
+        private const string IconPath = "Images/vd.ico";
+        private string vdExeName = "VirtualDesktop11.exe";
+        private string vdFullPath;
 
 
         public void Init(PluginInitContext context)
         {
             _context = context;
+            int buildNumber = GetWindowsBuildNumber();
+            if (buildNumber < 2200)
+            {
+                vdExeName = "VirtualDesktop.exe";
+            }
+            else if (buildNumber >= 26100)
+            {
+                vdExeName = "VirtualDesktop11-24H2.exe";
+            }
+
+            // Get the full path to the executable
+            string pluginDirectory = _context.CurrentPluginMetadata.PluginDirectory;
+            vdFullPath = Path.Combine(pluginDirectory, "vdmanager", vdExeName);
         }
 
         public List<Result> Query(Query query)
         {
             var results = new List<Result>();
 
-            // Execute in STA thread to access COM objects
-            int desktopCount = 0;
-            List<string> desktopNames = null;
-            int currentDesktop = 0;
-
-            // Safely get desktop information using STA thread
-            ExecuteStaThread(() =>
+            if (query.SearchTerms.Any(s => s.Contains("debug", StringComparison.OrdinalIgnoreCase)))
             {
-                try
-                {
-                    desktopCount = VDManager.GetDesktopCount();
-                    desktopNames = VDManager.GetAllDesktopNames();
-                    currentDesktop = VDManager.GetCurrentDesktopIndex();
-                }
-                catch (Exception)
-                {
-                    // Fallback to default values if COM calls fail
-                    desktopCount = 0;
-                    desktopNames = new List<string>();
-                }
-                return true;
-            });
 
-
-            // Create results based on desktop count
-            for (int i = 0; i < desktopCount; i++)
+                results.Add(new Result { Title = "Build Number", SubTitle = GetWindowsBuildNumber().ToString(), IcoPath = IconPath });
+                results.Add(new Result { Title = "VD Path", SubTitle = vdFullPath, IcoPath = IconPath });
+            }
+            string[] desktops = GetAllDesktops();
+            for (int i = 0; i < desktops.Length; i++)
             {
-                var desktopIndex = i; // Capture for lambda
-                string title = (i < desktopNames?.Count) ? desktopNames[i] : $"Virtual Desktop {i + 1}";
-                string subtitle = (desktopIndex == currentDesktop) ?
-                    $"Current Desktop (Desktop {i + 1})" : $"Switch to Virtual Desktop {i + 1}";
+                string desktop = desktops[i];
+                int index = i;  // Create a local copy of the loop variable
 
                 results.Add(new Result
                 {
-                    Title = title,
-                    SubTitle = subtitle,
+                    Title = desktop,
+                    SubTitle = "Switch to this desktop",
                     IcoPath = IconPath,
-                    Action = c =>
+                    Action = (e) =>
                     {
-                        return ExecuteStaThread(() =>
-                        {
-                            try
-                            {
-                                if (desktopIndex != currentDesktop)
-                                {
-                                    // Get the Flow Launcher window handle before switching
-                                    IntPtr flowLauncherWindow = GetForegroundWindow();
-
-                                    // Switch to the selected desktop
-                                    bool switchResult = VDManager.SwitchToDesktop(desktopIndex);
-
-                                    // Move the Flow Launcher window to the new desktop
-                                    if (switchResult && flowLauncherWindow != IntPtr.Zero)
-                                    {
-                                        VDManager.MoveWindowToDesktop(flowLauncherWindow, desktopIndex);
-                                    }
-
-                                    return switchResult;
-                                }
-                                return true;
-                            }
-                            catch
-                            {
-                                return false;
-                            }
-                        });
+                        CallVDManager($"/Switch:{index}");
+                        return true;
                     }
                 });
             }
 
-            // Add management option
-            results.Add(new Result
-            {
-                Title = "Virtual Desktop Manager",
-                SubTitle = "Manage your virtual desktops",
-                IcoPath = IconPath,
-                Action = c =>
-                {
-                    return true;
-                }
-            });
+
             return results;
+        }
+
+        private string[] GetAllDesktops()
+        {
+            return CallVDManager("/Q /List");
         }
 
         // Helper method to execute code in an STA thread
@@ -130,6 +97,65 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
 
             return result;
         }
+
+        private string[] CallVDManager(string args)
+        {
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = vdFullPath,
+                Arguments = args,
+                RedirectStandardOutput = true,  // Capture output
+                RedirectStandardError = true,   // Capture errors
+                UseShellExecute = false,        // Required for redirection
+                CreateNoWindow = true           // Don't show a window
+            };
+
+            List<string> outputLines = new List<string>();
+
+            using (var process = new Process())
+            {
+                process.StartInfo = processInfo;
+
+                // Event handler for output data
+                process.OutputDataReceived += (sender, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                    {
+                        outputLines.Add(e.Data);
+                    }
+                };
+
+                // Event handler for error data
+                process.ErrorDataReceived += (sender, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                    {
+                        outputLines.Add("ERROR: " + e.Data);
+                    }
+                };
+
+                process.Start();
+
+                // Begin asynchronous reading
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                process.WaitForExit(); // Wait for process to complete
+            }
+
+            return outputLines.ToArray();
+        }
+
+        // Add this to your Main class
+        private int GetWindowsBuildNumber()
+        {
+            // Basic approach using Environment.OSVersion
+            var osVersion = Environment.OSVersion;
+            var buildNumber = osVersion.Version.Build;
+
+            return buildNumber;
+        }
+
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
