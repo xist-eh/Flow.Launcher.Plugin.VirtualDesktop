@@ -186,7 +186,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                 {
                     string desktopName = desktops[i].ToLower();
                     int score = CalculateFuzzyMatchScore(searchTerm, desktopName);
-                    if (score > 0) // Match found
+                    if (score >= 70) // Only include matches with score >= 70
                     {
                         matches.Add((i, desktops[i], score));
                     }
@@ -247,59 +247,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             if (string.IsNullOrEmpty(query))
                 return 0;
 
-            // Exact match gets highest score
-            if (target.Equals(query, StringComparison.OrdinalIgnoreCase))
-                return 100;
-
-            // Contains match gets high score based on relative length
-            if (target.Contains(query, StringComparison.OrdinalIgnoreCase))
-                return 80 + (query.Length * 100 / target.Length);
-
-            // Check if all characters in the query appear in the target in order (subsequence)
-            if (IsSubsequence(query, target))
-            {
-                // Calculate how much of the target is matched
-                int matchRatio = query.Length * 100 / target.Length;
-                return 50 + matchRatio;
-            }
-
-            // Check if the query is the beginning of any word in the target
-            string[] targetWords = target.Split(' ', '-', '_', '.');
-            foreach (var word in targetWords)
-            {
-                if (word.StartsWith(query, StringComparison.OrdinalIgnoreCase))
-                    return 40 + (query.Length * 100 / target.Length);
-            }
-
-            // Check if at least half of the characters match
-            int commonChars = 0;
-            foreach (char c in query)
-            {
-                if (target.Contains(c, StringComparison.OrdinalIgnoreCase))
-                    commonChars++;
-            }
-
-            if (commonChars >= query.Length / 2)
-                return 20 + (commonChars * 100 / query.Length);
-
-            return 0; // No meaningful match
-        }
-
-        // Check if query is a subsequence of target (characters appear in order but not necessarily adjacent)
-        private bool IsSubsequence(string query, string target)
-        {
-            int queryIndex = 0;
-            int targetIndex = 0;
-
-            while (queryIndex < query.Length && targetIndex < target.Length)
-            {
-                if (char.ToLower(query[queryIndex]) == char.ToLower(target[targetIndex]))
-                    queryIndex++;
-
-                targetIndex++;
-            }
-
-            return queryIndex == query.Length;
+            return _context.API.FuzzySearch(query, target).Score;
         }
 
         private List<Result> HandleRenameDesktop(Query query, string currentDesktopName)
