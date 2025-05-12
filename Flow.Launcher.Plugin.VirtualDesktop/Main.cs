@@ -406,70 +406,28 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             return CallVDManager("/Q /List").Output;
         }
 
-        // Cached versions that use the internal state
-        private int GetCurrentDesktopIndex()
-        {
-            if (IsCacheExpired() || _stateChanged)
-            {
-                RefreshDesktopCache();
-                _stateChanged = false;
-            }
-            return _cachedCurrentDesktopIndex;
-        }
-
-        private string[] GetAllDesktops()
-        {
-            if (IsCacheExpired() || _stateChanged)
-            {
-                RefreshDesktopCache();
-                _stateChanged = false;
-            }
-            return _cachedDesktops;
-        }
-
-        // Helper method to execute code in an STA thread
-        static private bool ExecuteStaThread(Func<bool> action)
-        {
-            bool result = false;
-            var thread = new Thread(() =>
-            {
-                try
-                {
-                    result = action();
-                }
-                catch (Exception ex)
-                {
-                    result = false;
-                }
-            });
-
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.Start();
-            thread.Join();
-
-            return result;
-        }
-
         private ProcessResult CallVDManager(string args)
         {
+            // Setup process configuration
             var processInfo = new ProcessStartInfo
             {
                 FileName = vdFullPath,
                 Arguments = args,
-                RedirectStandardOutput = true,  // Capture output
-                RedirectStandardError = true,   // Capture errors
-                UseShellExecute = false,        // Required for redirection
-                CreateNoWindow = true           // Don't show a window
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
             };
 
             List<string> outputLines = new List<string>();
             int exitCode = 0;
 
+            // Execute process and capture output
             using (var process = new Process())
             {
                 process.StartInfo = processInfo;
 
-                // Event handler for output data
+                // Setup output capture
                 process.OutputDataReceived += (sender, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
@@ -478,7 +436,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                     }
                 };
 
-                // Event handler for error data
+                // Setup error capture
                 process.ErrorDataReceived += (sender, e) =>
                 {
                     if (!string.IsNullOrEmpty(e.Data))
@@ -487,21 +445,27 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                     }
                 };
 
+                // Start the process
                 process.Start();
 
                 // Begin asynchronous reading
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                process.WaitForExit(); // Wait for process to complete
+                // Wait for completion
+                process.WaitForExit();
                 exitCode = process.ExitCode;
             }
 
-            return new ProcessResult { Output = outputLines.ToArray(), ExitCode = exitCode };
+            return new ProcessResult
+            {
+                Output = outputLines.ToArray(),
+                ExitCode = exitCode
+            };
         }
 
         // Add this to your Main class
-        private int GetWindowsBuildNumber()
+        static private int GetWindowsBuildNumber()
         {
             // Basic approach using Environment.OSVersion
             var osVersion = Environment.OSVersion;
