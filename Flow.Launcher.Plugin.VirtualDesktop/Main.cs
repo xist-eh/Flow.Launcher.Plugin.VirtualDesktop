@@ -102,10 +102,18 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
                 return HandleCreateNewDesktop(query);
             }
 
+            // Handle move window command
+            if (query.SearchTerms.Length > 0 && query.SearchTerms[0].Equals("move", StringComparison.OrdinalIgnoreCase))
+            {
+                // Show options for moving the active window to other desktops
+                return HandleMoveWindowToDesktop(query, desktops, currentDesktopIndex);
+            }
+
             // If search term exists but isn't a command, treat as fuzzy search
             if (query.SearchTerms.Length > 0 &&
                 !query.SearchTerms[0].Equals("new", StringComparison.OrdinalIgnoreCase) &&
-                !query.SearchTerms[0].Equals("rename", StringComparison.OrdinalIgnoreCase))
+                !query.SearchTerms[0].Equals("rename", StringComparison.OrdinalIgnoreCase) &&
+                !query.SearchTerms[0].Equals("move", StringComparison.OrdinalIgnoreCase))
             {
                 return HandleFuzzyDesktopSearch(query, desktops, currentDesktopIndex);
             }
@@ -137,11 +145,11 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             // Add new desktop option
             results.Add(CreateNewDesktopResult());
 
-            // Display current desktop info
+            // Display current desktop info with additional move command hint
             results.Add(new Result
             {
                 Title = $"Current: {currentDesktopName}",
-                SubTitle = "Type 'rename [name]' to rename this desktop or 'new [name]' to create a new desktop",
+                SubTitle = "Type 'rename [name]', 'new [name]', or 'move' to move window",
                 IcoPath = IconPath,
                 Action = (e) => false
             });
@@ -406,6 +414,111 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
             return CallVDManager("/Q /List").Output;
         }
 
+        private void MoveActiveWindowToDesktop(int targetDesktopIndex)
+        {
+            // Get the current desktop's window list
+            var result = CallVDManager("/q /GetCurrentDesktop /ListWindowsOnDesktop");
+
+            // Check if we have enough windows in the output
+            if (result.Output != null && result.Output.Length > 1)
+            {
+                // Get the second window from the list
+                string windowHandle = result.Output[1];
+
+                // Move the window to the target desktop
+                CallVDManager($"/GetDesktop:{targetDesktopIndex} /MoveWindowHandle:{windowHandle}");
+
+                // Mark that state has changed
+                MarkStateChanged();
+            }
+        }
+
+        // Add a UI method to create results for moving windows to other desktops
+        private Result CreateMoveWindowToDesktopResult(string desktopName, int desktopIndex)
+        {
+            return new Result
+            {
+                Title = $"Move window to {desktopName}",
+                SubTitle = "Moves the active window to this desktop without switching",
+                IcoPath = IconPath,
+                Action = (e) =>
+                {
+                    MoveActiveWindowToDesktop(desktopIndex);
+                    return true;
+                }
+            };
+        }
+
+        // Add this new method to handle the move window command
+        private List<Result> HandleMoveWindowToDesktop(Query query, string[] desktops, int currentDesktopIndex)
+        {
+            var results = new List<Result>();
+
+            // If there are additional search terms, use them for fuzzy searching desktops
+            if (query.SearchTerms.Length > 1)
+            {
+                string searchTerm = string.Join(" ", query.SearchTerms.Skip(1)).ToLower();
+
+                // Filter desktops by name (fuzzy match)
+                var matches = new List<(int index, string desktop, int score)>();
+                for (int i = 0; i < desktops.Length; i++)
+                {
+                    if (i != currentDesktopIndex) // Skip current desktop
+                    {
+                        string desktopName = desktops[i].ToLower();
+                        int score = CalculateFuzzyMatchScore(searchTerm, desktopName);
+                        if (score >= 70) // Only include matches with score >= 70
+                        {
+                            matches.Add((i, desktops[i], score));
+                        }
+                    }
+                }
+
+                // Sort by match score in descending order
+                matches.Sort((a, b) => b.score.CompareTo(a.score));
+
+                // Add desktop results for moving window
+                foreach (var match in matches)
+                {
+                    results.Add(CreateMoveWindowToDesktopResult(match.desktop, match.index));
+                }
+
+                // If no results, provide feedback
+                if (matches.Count == 0)
+                {
+                    results.Add(new Result
+                    {
+                        Title = "No matching desktops found",
+                        SubTitle = "Try a different search term",
+                        IcoPath = IconPath,
+                        Action = (e) => false
+                    });
+                }
+            }
+            else
+            {
+                // List all available desktops for moving the window (excluding current one)
+                for (int i = 0; i < desktops.Length; i++)
+                {
+                    if (i != currentDesktopIndex) // Skip current desktop
+                    {
+                        results.Add(CreateMoveWindowToDesktopResult(desktops[i], i));
+                    }
+                }
+
+                // Provide instructions
+                results.Add(new Result
+                {
+                    Title = "Move active window",
+                    SubTitle = "Select a desktop to move the active window to, without switching",
+                    IcoPath = IconPath,
+                    Action = (e) => false
+                });
+            }
+
+            return results;
+        }
+
         private ProcessResult CallVDManager(string args)
         {
             // Setup process configuration
@@ -473,10 +586,6 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
 
             return buildNumber;
         }
-
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
     }
 
     public class ProcessResult
