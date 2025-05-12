@@ -23,7 +23,7 @@
     <Content Include="plugin.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
-    <Content Include="Images\vd.ico">
+    <Content Include="Images\vd.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
       <Content Include="vdmanager/VirtualDesktop.exe">

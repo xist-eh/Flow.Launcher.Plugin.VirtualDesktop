@@ -13,7 +13,7 @@ namespace Flow.Launcher.Plugin.VirtualDesktop
     public class Main : IPlugin
     {
         private PluginInitContext _context;
-        private const string IconPath = "Images/vd.ico";
+        private const string IconPath = "Images/vd.png";
         private string vdExeName = "VirtualDesktop11.exe";
         private string vdFullPath;
 
