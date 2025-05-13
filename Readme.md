@@ -15,6 +15,7 @@ Use the following commands in Flow Launcher:
     *        - Searches through all virtual desktops.
     rename   - Renames the current desktop.
     new      - Creates a new desktop.
+    move     - Moves active window to selected desktop
 
 ### Requirements
 
